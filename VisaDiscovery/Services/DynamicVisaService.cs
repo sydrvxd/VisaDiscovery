@@ -16,17 +16,9 @@ public class DynamicVisaService
     private object? _exclusiveLockValue;
     private bool _initialized;
 
-    // Known IVI VISA DLL locations
-    private static readonly string[] VisaPaths =
-    [
-        @"C:\Program Files\IVI Foundation\VISA\Microsoft.NET\Framework64\Current\Ivi.Visa.dll",
-        @"C:\Program Files (x86)\IVI Foundation\VISA\Microsoft.NET\Framework32\Current\Ivi.Visa.dll",
-        @"C:\Program Files\IVI Foundation\VISA\Microsoft.NET\Framework64\v5.12.0\Ivi.Visa.dll",
-        @"C:\Program Files\IVI Foundation\VISA\Microsoft.NET\Framework64\v5.11.0\Ivi.Visa.dll",
-    ];
-
     public bool IsAvailable { get; private set; }
     public string? RuntimeInfo { get; private set; }
+    public List<string> DiagnosticLog { get; } = [];
 
     public event Action<string>? StatusUpdate;
 
@@ -38,93 +30,258 @@ public class DynamicVisaService
         if (_initialized) return;
         _initialized = true;
 
-        // Strategy 1: Try loading from GAC by name
-        try
-        {
-            _visaAssembly = Assembly.Load("Ivi.Visa, Culture=neutral, PublicKeyToken=a128c98f1d7717c1");
-            if (_visaAssembly != null)
-            {
-                SetupTypes();
-                return;
-            }
-        }
-        catch { /* not in GAC */ }
+        // Collect all candidate paths
+        var candidates = GetCandidatePaths();
+        DiagnosticLog.Add($"Found {candidates.Count} candidate path(s)");
 
-        // Strategy 2: Try known file paths
-        foreach (var path in VisaPaths)
+        // Strategy 1: Try loading from GAC by various known names
+        var gacNames = new[]
+        {
+            "Ivi.Visa, Culture=neutral, PublicKeyToken=a128c98f1d7717c1",
+            "Ivi.Visa, Culture=neutral, PublicKeyToken=null",
+            "Ivi.Visa"
+        };
+
+        foreach (var name in gacNames)
         {
             try
             {
-                if (!System.IO.File.Exists(path)) continue;
-                _visaAssembly = Assembly.LoadFrom(path);
+                _visaAssembly = Assembly.Load(name);
                 if (_visaAssembly != null)
                 {
-                    SetupTypes();
-                    return;
+                    DiagnosticLog.Add($"Loaded from GAC: {name} → {_visaAssembly.Location}");
+                    if (SetupTypes()) return;
+                    _visaAssembly = null;
                 }
             }
-            catch { /* try next */ }
+            catch (Exception ex)
+            {
+                DiagnosticLog.Add($"GAC '{name}': {ex.GetType().Name} — {ex.Message}");
+            }
         }
 
-        // Strategy 3: Search IVI Foundation directory
-        try
+        // Strategy 2: Try all candidate file paths
+        foreach (var path in candidates)
         {
-            var iviRoot = @"C:\Program Files\IVI Foundation\VISA\Microsoft.NET";
-            if (System.IO.Directory.Exists(iviRoot))
+            try
             {
-                var files = System.IO.Directory.GetFiles(iviRoot, "Ivi.Visa.dll", System.IO.SearchOption.AllDirectories);
+                if (!System.IO.File.Exists(path))
+                {
+                    DiagnosticLog.Add($"Not found: {path}");
+                    continue;
+                }
+
+                DiagnosticLog.Add($"Found DLL: {path}");
+                _visaAssembly = Assembly.LoadFrom(path);
+
+                if (_visaAssembly != null)
+                {
+                    DiagnosticLog.Add($"Loaded: {_visaAssembly.FullName}");
+                    if (SetupTypes()) return;
+                    _visaAssembly = null;
+                }
+            }
+            catch (Exception ex)
+            {
+                DiagnosticLog.Add($"Load '{path}': {ex.GetType().Name} — {ex.Message}");
+            }
+        }
+
+        // Strategy 3: Search entire IVI Foundation directory tree
+        var searchRoots = new[]
+        {
+            @"C:\Program Files\IVI Foundation",
+            @"C:\Program Files (x86)\IVI Foundation",
+            @"C:\Program Files\National Instruments",
+            @"C:\Program Files (x86)\National Instruments",
+            @"C:\Program Files\Keysight\IO Libraries Suite",
+        };
+
+        foreach (var root in searchRoots)
+        {
+            try
+            {
+                if (!System.IO.Directory.Exists(root)) continue;
+
+                var files = System.IO.Directory.GetFiles(root, "Ivi.Visa.dll", System.IO.SearchOption.AllDirectories);
                 foreach (var file in files)
                 {
+                    if (candidates.Contains(file)) continue; // already tried
+
                     try
                     {
+                        DiagnosticLog.Add($"Deep search found: {file}");
                         _visaAssembly = Assembly.LoadFrom(file);
                         if (_visaAssembly != null)
                         {
-                            SetupTypes();
-                            return;
+                            DiagnosticLog.Add($"Loaded: {_visaAssembly.FullName}");
+                            if (SetupTypes()) return;
+                            _visaAssembly = null;
                         }
                     }
-                    catch { /* try next */ }
+                    catch (Exception ex)
+                    {
+                        DiagnosticLog.Add($"Load '{file}': {ex.GetType().Name} — {ex.Message}");
+                    }
                 }
             }
+            catch (Exception ex)
+            {
+                DiagnosticLog.Add($"Search '{root}': {ex.Message}");
+            }
         }
-        catch { /* no IVI Foundation directory */ }
 
         IsAvailable = false;
-        RuntimeInfo = "No VISA runtime found";
+        RuntimeInfo = "No compatible VISA assembly found. See diagnostic log for details.";
+        DiagnosticLog.Add("--- VISA initialization failed ---");
     }
 
-    private void SetupTypes()
+    private static List<string> GetCandidatePaths()
     {
-        _globalResourceManagerType = _visaAssembly!.GetType("Ivi.Visa.GlobalResourceManager");
-        _accessModeType = _visaAssembly.GetType("Ivi.Visa.AccessMode");
+        var paths = new List<string>();
 
-        if (_globalResourceManagerType == null || _accessModeType == null)
+        // IVI Foundation standard locations (.NET Standard / .NET Core compatible)
+        var bases = new[]
         {
-            IsAvailable = false;
-            RuntimeInfo = "VISA assembly loaded but API types not found";
-            return;
+            @"C:\Program Files\IVI Foundation\VISA\Microsoft.NET",
+            @"C:\Program Files (x86)\IVI Foundation\VISA\Microsoft.NET",
+        };
+
+        var subfolders = new[]
+        {
+            @"Framework64\Current",
+            @"Framework32\Current",
+            @"Framework64\v5.12.0",
+            @"Framework64\v5.11.0",
+            @"Framework64\v5.8.0",
+            @"Framework32\v5.12.0",
+            @"Framework32\v5.11.0",
+            // .NET Standard versions (newer IVI shared components)
+            @"netstandard2.0",
+            @"net6.0",
+            @"net8.0",
+        };
+
+        foreach (var b in bases)
+        {
+            foreach (var sub in subfolders)
+            {
+                paths.Add(System.IO.Path.Combine(b, sub, "Ivi.Visa.dll"));
+            }
         }
 
-        _exclusiveLockValue = Enum.Parse(_accessModeType, "ExclusiveLock");
+        // NI-VISA specific paths
+        paths.Add(@"C:\Program Files\National Instruments\Shared\NI-VISA\Ivi.Visa.dll");
+        paths.Add(@"C:\Program Files\National Instruments\Shared\NI-VISA\.NET\Ivi.Visa.dll");
+        paths.Add(@"C:\Program Files (x86)\National Instruments\Shared\NI-VISA\Ivi.Visa.dll");
+        paths.Add(@"C:\Windows\Microsoft.NET\assembly\GAC_MSIL\Ivi.Visa");
 
-        // Test that VISA is actually functional
+        // Keysight specific
+        paths.Add(@"C:\Program Files\Keysight\IO Libraries Suite\Ivi.Visa.dll");
+        paths.Add(@"C:\Program Files (x86)\Keysight\IO Libraries Suite\Ivi.Visa.dll");
+
+        // R&S specific
+        paths.Add(@"C:\Program Files\Rohde-Schwarz\RsVisa\Ivi.Visa.dll");
+
+        return paths;
+    }
+
+    private bool SetupTypes()
+    {
+        // List all types for diagnostics
         try
         {
-            var openMethod = _globalResourceManagerType.GetMethod("Open", Type.EmptyTypes);
-            openMethod?.Invoke(null, null);
-            IsAvailable = true;
-
-            var version = _visaAssembly.GetName().Version;
-            RuntimeInfo = $"IVI VISA {version} ({_visaAssembly.Location})";
+            var allTypes = _visaAssembly!.GetExportedTypes();
+            var visaTypes = allTypes.Where(t => t.Namespace?.StartsWith("Ivi.Visa") == true).Select(t => t.FullName).ToList();
+            DiagnosticLog.Add($"Exported Ivi.Visa types: {string.Join(", ", visaTypes.Take(10))}{(visaTypes.Count > 10 ? "..." : "")}");
         }
         catch (Exception ex)
         {
-            // Assembly loaded but runtime not functional
-            IsAvailable = false;
-            var inner = ex.InnerException?.Message ?? ex.Message;
-            RuntimeInfo = $"VISA assembly found but runtime error: {inner}";
+            DiagnosticLog.Add($"Could not enumerate types: {ex.Message}");
         }
+
+        _globalResourceManagerType = _visaAssembly!.GetType("Ivi.Visa.GlobalResourceManager");
+        _accessModeType = _visaAssembly.GetType("Ivi.Visa.AccessMode");
+
+        if (_globalResourceManagerType == null)
+        {
+            DiagnosticLog.Add("Type 'Ivi.Visa.GlobalResourceManager' not found in assembly");
+
+            // Try to find any ResourceManager type
+            try
+            {
+                var rmTypes = _visaAssembly.GetExportedTypes()
+                    .Where(t => t.Name.Contains("ResourceManager", StringComparison.OrdinalIgnoreCase))
+                    .Select(t => t.FullName)
+                    .ToList();
+                DiagnosticLog.Add($"ResourceManager-like types: {string.Join(", ", rmTypes)}");
+            }
+            catch { }
+
+            return false;
+        }
+
+        if (_accessModeType == null)
+        {
+            DiagnosticLog.Add("Type 'Ivi.Visa.AccessMode' not found — trying without exclusive lock");
+        }
+        else
+        {
+            try
+            {
+                _exclusiveLockValue = Enum.Parse(_accessModeType, "ExclusiveLock");
+            }
+            catch
+            {
+                // Try "None" as fallback
+                try { _exclusiveLockValue = Enum.Parse(_accessModeType, "None"); }
+                catch { _exclusiveLockValue = null; }
+            }
+        }
+
+        // Test that VISA is actually functional — but don't require Open() to succeed
+        // Just verify we can call Find()
+        try
+        {
+            var findMethod = _globalResourceManagerType.GetMethod("Find",
+                BindingFlags.Public | BindingFlags.Static,
+                null, [typeof(string)], null);
+
+            if (findMethod != null)
+            {
+                IsAvailable = true;
+                var version = _visaAssembly.GetName().Version;
+                RuntimeInfo = $"IVI VISA {version} ({_visaAssembly.Location})";
+                DiagnosticLog.Add($"VISA ready: {RuntimeInfo}");
+                return true;
+            }
+
+            DiagnosticLog.Add("Find() method not found on GlobalResourceManager");
+        }
+        catch (Exception ex)
+        {
+            DiagnosticLog.Add($"VISA functional test failed: {ex.GetType().Name} — {ex.InnerException?.Message ?? ex.Message}");
+        }
+
+        // Even if Find() isn't available, try Open() approach
+        try
+        {
+            var openMethodNoArgs = _globalResourceManagerType.GetMethod("Open", Type.EmptyTypes);
+            if (openMethodNoArgs != null)
+            {
+                IsAvailable = true;
+                var version = _visaAssembly.GetName().Version;
+                RuntimeInfo = $"IVI VISA {version} ({_visaAssembly.Location})";
+                DiagnosticLog.Add($"VISA ready (Open method): {RuntimeInfo}");
+                return true;
+            }
+        }
+        catch (Exception ex)
+        {
+            DiagnosticLog.Add($"Open() test: {ex.InnerException?.Message ?? ex.Message}");
+        }
+
+        return false;
     }
 
     /// <summary>
@@ -136,21 +293,43 @@ public class DynamicVisaService
 
         try
         {
-            // GlobalResourceManager.Find(pattern)
             var findMethod = _globalResourceManagerType.GetMethod("Find",
                 BindingFlags.Public | BindingFlags.Static,
                 null, [typeof(string)], null);
 
-            if (findMethod == null) return [];
+            if (findMethod == null)
+            {
+                // Alternative: Open resource manager, then call Find on the instance
+                var openMethod = _globalResourceManagerType.GetMethod("Open", Type.EmptyTypes);
+                if (openMethod == null) return [];
 
-            var result = findMethod.Invoke(null, [pattern]);
-            if (result is IEnumerable<string> resources)
-                return resources.ToList();
+                var rm = openMethod.Invoke(null, null);
+                if (rm == null) return [];
+
+                try
+                {
+                    var instanceFind = rm.GetType().GetMethod("Find", [typeof(string)]);
+                    var result = instanceFind?.Invoke(rm, [pattern]);
+                    if (result is IEnumerable<string> resources)
+                        return resources.ToList();
+                }
+                finally
+                {
+                    if (rm is IDisposable d) d.Dispose();
+                }
+
+                return [];
+            }
+
+            var staticResult = findMethod.Invoke(null, [pattern]);
+            if (staticResult is IEnumerable<string> staticResources)
+                return staticResources.ToList();
 
             return [];
         }
-        catch
+        catch (Exception ex)
         {
+            DiagnosticLog.Add($"FindResources('{pattern}'): {ex.InnerException?.Message ?? ex.Message}");
             return [];
         }
     }
@@ -176,8 +355,12 @@ public class DynamicVisaService
 
         foreach (var pattern in patterns)
         {
-            foreach (var resource in FindResources(pattern))
-                all.Add(resource);
+            try
+            {
+                foreach (var resource in FindResources(pattern))
+                    all.Add(resource);
+            }
+            catch { /* skip failed patterns */ }
         }
 
         return all.ToList();
@@ -198,50 +381,21 @@ public class DynamicVisaService
 
         try
         {
-            // GlobalResourceManager.Open(resourceName, AccessMode.ExclusiveLock, 3000)
-            var openMethod = _globalResourceManagerType.GetMethod("Open",
-                BindingFlags.Public | BindingFlags.Static,
-                null, [typeof(string), _accessModeType!, typeof(int)], null);
-
-            if (openMethod == null)
-                return InstrumentInfo.CreateError(resourceName, 0, GetVisaInterfaceType(resourceName), "Open method not found");
-
-            var session = openMethod.Invoke(null, [resourceName, _exclusiveLockValue!, 3000]);
+            object? session = OpenSession(resourceName);
             if (session == null)
-                return InstrumentInfo.CreateError(resourceName, 0, GetVisaInterfaceType(resourceName), "Session is null");
+                return InstrumentInfo.CreateError(resourceName, 0, GetVisaInterfaceType(resourceName), "Could not open session");
 
             try
             {
-                // Check if it's IMessageBasedSession
-                var sessionType = session.GetType();
-
-                // Set timeout: session.TimeoutMilliseconds = 3000
-                var timeoutProp = sessionType.GetProperty("TimeoutMilliseconds");
-                timeoutProp?.SetValue(session, 3000);
-
-                // Get FormattedIO
-                var formattedIoProp = sessionType.GetProperty("FormattedIO");
-                var formattedIo = formattedIoProp?.GetValue(session);
-
-                if (formattedIo == null)
-                    return InstrumentInfo.CreateError(resourceName, 0, GetVisaInterfaceType(resourceName), "Not a message-based session");
-
-                var fioType = formattedIo.GetType();
-
-                // FormattedIO.WriteLine("*IDN?")
-                var writeMethod = fioType.GetMethod("WriteLine", [typeof(string)]);
-                writeMethod?.Invoke(formattedIo, ["*IDN?"]);
-
-                // FormattedIO.ReadLine()
-                var readMethod = fioType.GetMethod("ReadLine", Type.EmptyTypes);
-                var response = readMethod?.Invoke(formattedIo, null) as string ?? "";
+                var response = QuerySession(session, "*IDN?");
+                if (response == null)
+                    return InstrumentInfo.CreateError(resourceName, 0, GetVisaInterfaceType(resourceName), "No response");
 
                 var iface = GetVisaInterfaceType(resourceName);
                 return InstrumentInfo.FromIdnResponse(resourceName, 0, iface, response);
             }
             finally
             {
-                // Dispose session
                 if (session is IDisposable disposable)
                     disposable.Dispose();
             }
@@ -269,34 +423,20 @@ public class DynamicVisaService
 
             try
             {
-                var openMethod = _globalResourceManagerType.GetMethod("Open",
-                    BindingFlags.Public | BindingFlags.Static,
-                    null, [typeof(string), _accessModeType!, typeof(int)], null);
-
-                var session = openMethod?.Invoke(null, [resourceName, _exclusiveLockValue!, 3000]);
+                var session = OpenSession(resourceName);
                 if (session == null) return "Error: Could not open session";
 
                 try
                 {
-                    var sessionType = session.GetType();
-                    var timeoutProp = sessionType.GetProperty("TimeoutMilliseconds");
-                    timeoutProp?.SetValue(session, 3000);
-
-                    var formattedIoProp = sessionType.GetProperty("FormattedIO");
-                    var formattedIo = formattedIoProp?.GetValue(session);
-                    if (formattedIo == null) return "Error: Not a message-based session";
-
-                    var fioType = formattedIo.GetType();
-                    var writeMethod = fioType.GetMethod("WriteLine", [typeof(string)]);
-                    writeMethod?.Invoke(formattedIo, [command]);
-
                     if (command.TrimEnd().EndsWith('?'))
                     {
-                        var readMethod = fioType.GetMethod("ReadLine", Type.EmptyTypes);
-                        return readMethod?.Invoke(formattedIo, null) as string ?? "";
+                        return QuerySession(session, command) ?? "Error: No response";
                     }
-
-                    return "OK";
+                    else
+                    {
+                        WriteSession(session, command);
+                        return "OK";
+                    }
                 }
                 finally
                 {
@@ -313,6 +453,118 @@ public class DynamicVisaService
                 return $"Error: {ex.Message}";
             }
         });
+    }
+
+    private object? OpenSession(string resourceName)
+    {
+        // Try: GlobalResourceManager.Open(resourceName, AccessMode.ExclusiveLock, 3000)
+        if (_accessModeType != null && _exclusiveLockValue != null)
+        {
+            try
+            {
+                var openMethod = _globalResourceManagerType!.GetMethod("Open",
+                    BindingFlags.Public | BindingFlags.Static,
+                    null, [typeof(string), _accessModeType, typeof(int)], null);
+
+                if (openMethod != null)
+                    return openMethod.Invoke(null, [resourceName, _exclusiveLockValue, 3000]);
+            }
+            catch { /* try simpler overload */ }
+        }
+
+        // Fallback: GlobalResourceManager.Open(resourceName)
+        try
+        {
+            var openMethod = _globalResourceManagerType!.GetMethod("Open",
+                BindingFlags.Public | BindingFlags.Static,
+                null, [typeof(string)], null);
+
+            return openMethod?.Invoke(null, [resourceName]);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static string? QuerySession(object session, string command)
+    {
+        var sessionType = session.GetType();
+
+        // Set timeout
+        var timeoutProp = sessionType.GetProperty("TimeoutMilliseconds");
+        timeoutProp?.SetValue(session, 3000);
+
+        // Try FormattedIO approach first
+        var formattedIoProp = sessionType.GetProperty("FormattedIO");
+        var formattedIo = formattedIoProp?.GetValue(session);
+
+        if (formattedIo != null)
+        {
+            var fioType = formattedIo.GetType();
+            var writeMethod = fioType.GetMethod("WriteLine", [typeof(string)]);
+            writeMethod?.Invoke(formattedIo, [command]);
+
+            var readMethod = fioType.GetMethod("ReadLine", Type.EmptyTypes);
+            return readMethod?.Invoke(formattedIo, null) as string;
+        }
+
+        // Fallback: try RawIO
+        var rawIoProp = sessionType.GetProperty("RawIO");
+        var rawIo = rawIoProp?.GetValue(session);
+
+        if (rawIo != null)
+        {
+            var rawType = rawIo.GetType();
+            var writeMethod = rawType.GetMethod("Write", [typeof(string)]);
+            writeMethod?.Invoke(rawIo, [command + "\n"]);
+
+            var readMethod = rawType.GetMethod("ReadString", Type.EmptyTypes)
+                          ?? rawType.GetMethod("Read", Type.EmptyTypes);
+            return readMethod?.Invoke(rawIo, null) as string;
+        }
+
+        return null;
+    }
+
+    private static void WriteSession(object session, string command)
+    {
+        var sessionType = session.GetType();
+
+        var formattedIoProp = sessionType.GetProperty("FormattedIO");
+        var formattedIo = formattedIoProp?.GetValue(session);
+
+        if (formattedIo != null)
+        {
+            var fioType = formattedIo.GetType();
+            var writeMethod = fioType.GetMethod("WriteLine", [typeof(string)]);
+            writeMethod?.Invoke(formattedIo, [command]);
+            return;
+        }
+
+        var rawIoProp = sessionType.GetProperty("RawIO");
+        var rawIo = rawIoProp?.GetValue(session);
+
+        if (rawIo != null)
+        {
+            var rawType = rawIo.GetType();
+            var writeMethod = rawType.GetMethod("Write", [typeof(string)]);
+            writeMethod?.Invoke(rawIo, [command + "\n"]);
+        }
+    }
+
+    /// <summary>
+    /// Get full diagnostic info as string (for troubleshooting).
+    /// </summary>
+    public string GetDiagnosticReport()
+    {
+        return $"VISA Available: {IsAvailable}\n" +
+               $"Runtime: {RuntimeInfo}\n" +
+               $"Assembly: {_visaAssembly?.FullName ?? "none"}\n" +
+               $"Location: {_visaAssembly?.Location ?? "none"}\n" +
+               $"GlobalResourceManager: {_globalResourceManagerType?.FullName ?? "not found"}\n" +
+               $"AccessMode: {_accessModeType?.FullName ?? "not found"}\n\n" +
+               $"--- Log ---\n{string.Join("\n", DiagnosticLog)}";
     }
 
     private static InterfaceType GetVisaInterfaceType(string resourceName)

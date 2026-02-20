@@ -293,6 +293,14 @@ public partial class MainViewModel : ObservableObject
     }
 
     [RelayCommand]
+    private void ShowVisaDiagnostics()
+    {
+        var report = _visaService.GetDiagnosticReport();
+        CommandResult = report;
+        MessageBox.Show(report, "VISA Diagnostics", MessageBoxButton.OK, MessageBoxImage.Information);
+    }
+
+    [RelayCommand]
     private void CopyIdn()
     {
         if (SelectedInstrument != null && !string.IsNullOrEmpty(SelectedInstrument.IdnResponse))

@@ -236,6 +236,7 @@
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
@@ -253,8 +254,10 @@
 
                 <Button Grid.Column="3" Content="📋 IDN" Command="{Binding CopyIdnCommand}"
                         Style="{StaticResource SmallButton}" Margin="8,0,0,0" />
+                <Button Grid.Column="4" Content="🔧 VISA Diag" Command="{Binding ShowVisaDiagnosticsCommand}"
+                        Style="{StaticResource SmallButton}" Margin="8,0,0,0" />
 
-                <TextBox Grid.Row="1" Grid.ColumnSpan="4"
+                <TextBox Grid.Row="1" Grid.ColumnSpan="5"
                          Text="{Binding CommandResult, Mode=OneWay}"
                          Background="#11111B" Foreground="#A6E3A1" BorderThickness="0"
                          Padding="10,8" FontFamily="Consolas" FontSize="12"
