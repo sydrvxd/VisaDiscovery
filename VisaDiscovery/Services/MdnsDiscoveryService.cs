@@ -33,12 +33,10 @@ public class MdnsDiscoveryService
         {
             var name = e.ServiceInstanceName.ToString();
             StatusUpdate?.Invoke($"mDNS: found service {name}");
-        };
 
-        sd.ServiceDiscovered += (_, e) =>
-        {
-            // Query for instances of this service
-            mdns.SendQuery(e.ServiceName, type: DnsType.PTR);
+            // Resolve the instance to get SRV/A records
+            mdns.SendQuery(e.ServiceInstanceName, type: DnsType.SRV);
+            mdns.SendQuery(e.ServiceInstanceName, type: DnsType.A);
         };
 
         mdns.AnswerReceived += (_, e) =>
