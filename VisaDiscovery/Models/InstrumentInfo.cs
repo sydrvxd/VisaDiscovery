@@ -1,24 +1,51 @@
 namespace VisaDiscovery.Models;
 
+public enum InterfaceType
+{
+    TcpRaw,     // SCPI raw socket (port 5025)
+    LxiVxi11,   // LXI/VXI-11 (port 111)
+    LxiMdns,    // Discovered via mDNS
+    HiSlip,     // HiSLIP (port 4880)
+    Serial,     // COM port
+    Unknown
+}
+
 public class InstrumentInfo
 {
-    public string ResourceName { get; set; } = string.Empty;
+    public string Address { get; set; } = string.Empty;
+    public int Port { get; set; }
     public string Manufacturer { get; set; } = string.Empty;
     public string Model { get; set; } = string.Empty;
     public string SerialNumber { get; set; } = string.Empty;
     public string FirmwareVersion { get; set; } = string.Empty;
     public string IdnResponse { get; set; } = string.Empty;
-    public string InterfaceType { get; set; } = string.Empty;
+    public InterfaceType Interface { get; set; }
     public string Status { get; set; } = string.Empty;
     public bool IsConnected { get; set; }
+    public string Hostname { get; set; } = string.Empty;
 
-    public static InstrumentInfo FromIdnResponse(string resourceName, string idnResponse)
+    public string DisplayAddress => Interface == InterfaceType.Serial
+        ? Address
+        : Port > 0 ? $"{Address}:{Port}" : Address;
+
+    public string InterfaceLabel => Interface switch
+    {
+        InterfaceType.TcpRaw => "TCP/SCPI",
+        InterfaceType.LxiVxi11 => "LXI/VXI-11",
+        InterfaceType.LxiMdns => "LXI/mDNS",
+        InterfaceType.HiSlip => "HiSLIP",
+        InterfaceType.Serial => "Serial",
+        _ => "Unknown"
+    };
+
+    public static InstrumentInfo FromIdnResponse(string address, int port, InterfaceType iface, string idnResponse)
     {
         var info = new InstrumentInfo
         {
-            ResourceName = resourceName,
+            Address = address,
+            Port = port,
+            Interface = iface,
             IdnResponse = idnResponse.Trim(),
-            InterfaceType = GetInterfaceType(resourceName)
         };
 
         var parts = idnResponse.Trim().Split(',');
@@ -29,29 +56,31 @@ public class InstrumentInfo
 
         info.Status = "Connected";
         info.IsConnected = true;
-
         return info;
     }
 
-    public static InstrumentInfo CreateError(string resourceName, string error)
+    public static InstrumentInfo CreateError(string address, int port, InterfaceType iface, string error)
     {
         return new InstrumentInfo
         {
-            ResourceName = resourceName,
-            InterfaceType = GetInterfaceType(resourceName),
+            Address = address,
+            Port = port,
+            Interface = iface,
             Status = $"Error: {error}",
             IsConnected = false
         };
     }
 
-    private static string GetInterfaceType(string resourceName)
+    public static InstrumentInfo CreateDiscovered(string address, int port, InterfaceType iface, string hostname = "")
     {
-        if (resourceName.StartsWith("GPIB", StringComparison.OrdinalIgnoreCase)) return "GPIB";
-        if (resourceName.StartsWith("USB", StringComparison.OrdinalIgnoreCase)) return "USB";
-        if (resourceName.StartsWith("TCPIP", StringComparison.OrdinalIgnoreCase)) return "TCP/IP";
-        if (resourceName.StartsWith("ASRL", StringComparison.OrdinalIgnoreCase)) return "Serial";
-        if (resourceName.StartsWith("PXI", StringComparison.OrdinalIgnoreCase)) return "PXI";
-        if (resourceName.StartsWith("VXI", StringComparison.OrdinalIgnoreCase)) return "VXI";
-        return "Unknown";
+        return new InstrumentInfo
+        {
+            Address = address,
+            Port = port,
+            Interface = iface,
+            Hostname = hostname,
+            Status = "Discovered (not queried)",
+            IsConnected = false
+        };
     }
 }

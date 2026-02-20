@@ -6,34 +6,17 @@
     <UseWPF>true</UseWPF>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <ApplicationIcon>Assets\app.ico</ApplicationIcon>
     <AssemblyName>VisaDiscovery</AssemblyName>
     <RootNamespace>VisaDiscovery</RootNamespace>
     <Version>1.0.0</Version>
     <Authors>sydrv</Authors>
-    <Description>VISA Instrument Discovery Tool</Description>
+    <Description>VISA-independent Instrument Discovery Tool — no NI-VISA, Keysight or R&amp;S runtime needed</Description>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.0" />
+    <PackageReference Include="Makaretu.Dns.Multicast" Version="0.27.0" />
+    <PackageReference Include="System.IO.Ports" Version="8.0.0" />
   </ItemGroup>
-
-  <!--
-    Ivi.Visa is installed by VISA runtimes (NI-VISA, Keysight IO Libraries, R&S VISA).
-    Typical install path: C:\Program Files\IVI Foundation\VISA\Microsoft.NET\Framework64\
-    The reference below auto-resolves from the IVI Foundation standard location.
-  -->
-  <ItemGroup>
-    <Reference Include="Ivi.Visa">
-      <HintPath>C:\Program Files\IVI Foundation\VISA\Microsoft.NET\Framework64\Current\Ivi.Visa.dll</HintPath>
-      <Private>false</Private>
-    </Reference>
-  </ItemGroup>
-
-  <!--
-    Alternative: If you have NI-VISA installed, you can replace the Reference above with:
-    <PackageReference Include="NationalInstruments.Visa" Version="24.8.0" />
-    and change 'using Ivi.Visa' to 'using NationalInstruments.Visa' in VisaService.cs
-  -->
 
 </Project>

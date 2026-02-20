@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Net.NetworkInformation;
 using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -9,16 +10,22 @@ namespace VisaDiscovery.ViewModels;
 
 public partial class MainViewModel : ObservableObject
 {
-    private readonly VisaService _visaService = new();
+    private readonly TcpScpiService _tcpService = new();
+    private readonly NetworkScanService _networkScan = new();
+    private readonly SerialScanService _serialScan = new();
+    private readonly MdnsDiscoveryService _mdnsScan = new();
+    private CancellationTokenSource? _scanCts;
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(SendCommandCommand))]
     private InstrumentInfo? _selectedInstrument;
 
     [ObservableProperty]
-    private string _statusText = "Ready";
+    private string _statusText = "Ready — no VISA runtime required";
 
     [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(ScanCommand))]
+    [NotifyCanExecuteChangedFor(nameof(StopScanCommand))]
     private bool _isScanning;
 
     [ObservableProperty]
@@ -28,46 +35,117 @@ public partial class MainViewModel : ObservableObject
     private string _commandResult = string.Empty;
 
     [ObservableProperty]
-    private bool _visaAvailable;
+    private string _subnetFilter = string.Empty;
+
+    [ObservableProperty]
+    private int _scanProgress;
+
+    [ObservableProperty]
+    private bool _scanTcp = true;
+
+    [ObservableProperty]
+    private bool _scanMdns = true;
+
+    [ObservableProperty]
+    private bool _scanSerial = true;
+
+    [ObservableProperty]
+    private string _manualHost = string.Empty;
 
     public ObservableCollection<InstrumentInfo> Instruments { get; } = new();
+    public ObservableCollection<string> DetectedSubnets { get; } = new();
 
     public MainViewModel()
     {
-        VisaAvailable = _visaService.IsVisaAvailable();
-        if (!VisaAvailable)
-            StatusText = "⚠ No VISA runtime detected. Install NI-VISA, Keysight IO Libraries, or R&S VISA.";
+        _networkScan.StatusUpdate += msg => Application.Current.Dispatcher.Invoke(() => StatusText = msg);
+        _serialScan.StatusUpdate += msg => Application.Current.Dispatcher.Invoke(() => StatusText = msg);
+        _mdnsScan.StatusUpdate += msg => Application.Current.Dispatcher.Invoke(() => StatusText = msg);
+
+        // Detect local subnets
+        foreach (var (addr, prefix) in NetworkScanService.GetLocalSubnets())
+        {
+            var subnet = NetworkScanService.GetSubnetBase(addr);
+            if (!DetectedSubnets.Contains(subnet))
+                DetectedSubnets.Add(subnet);
+        }
+
+        if (DetectedSubnets.Count > 0)
+            SubnetFilter = DetectedSubnets[0];
     }
 
-    [RelayCommand]
+    private bool CanScan() => !IsScanning;
+    private bool CanStopScan() => IsScanning;
+
+    [RelayCommand(CanExecute = nameof(CanScan))]
     private async Task ScanAsync()
     {
         IsScanning = true;
-        StatusText = "Scanning for instruments...";
+        _scanCts = new CancellationTokenSource();
+        var ct = _scanCts.Token;
         Instruments.Clear();
         CommandResult = string.Empty;
+        ScanProgress = 0;
 
         try
         {
-            var resources = await Task.Run(() => _visaService.FindAllResources().ToList());
-
-            if (resources.Count == 0)
+            // 1. mDNS discovery
+            if (ScanMdns)
             {
-                StatusText = "No VISA resources found.";
-                IsScanning = false;
-                return;
+                StatusText = "mDNS: Discovering LXI instruments...";
+                var mdnsResults = await _mdnsScan.DiscoverAsync(3000, ct);
+
+                foreach (var info in mdnsResults)
+                {
+                    // Try to query *IDN? on discovered instruments
+                    var idn = await _tcpService.TryIdentifyAsync(info.Address, info.Port > 0 ? info.Port : 5025);
+                    if (idn != null)
+                    {
+                        var identified = InstrumentInfo.FromIdnResponse(info.Address, info.Port, InterfaceType.LxiMdns, idn);
+                        identified.Hostname = info.Hostname;
+                        Instruments.Add(identified);
+                    }
+                    else
+                    {
+                        Instruments.Add(info);
+                    }
+                }
             }
 
-            StatusText = $"Found {resources.Count} resource(s). Querying...";
+            ScanProgress = 10;
 
-            foreach (var resource in resources)
+            // 2. TCP subnet scan
+            if (ScanTcp && !string.IsNullOrWhiteSpace(SubnetFilter))
             {
-                var info = await _visaService.QueryInstrumentAsync(resource);
-                Instruments.Add(info);
+                StatusText = $"TCP: Scanning {SubnetFilter}.0/24 for instruments...";
+                var tcpResults = await _networkScan.ScanSubnetAsync(SubnetFilter, ct);
+
+                foreach (var info in tcpResults)
+                {
+                    // Avoid duplicates from mDNS
+                    if (!Instruments.Any(i => i.Address == info.Address && i.Port == info.Port))
+                        Instruments.Add(info);
+                }
             }
+
+            ScanProgress = 80;
+
+            // 3. Serial ports
+            if (ScanSerial)
+            {
+                StatusText = "Serial: Probing COM ports...";
+                var serialResults = await _serialScan.ScanSerialPortsAsync(ct);
+                foreach (var info in serialResults)
+                    Instruments.Add(info);
+            }
+
+            ScanProgress = 100;
 
             var connected = Instruments.Count(i => i.IsConnected);
-            StatusText = $"Scan complete: {Instruments.Count} resource(s), {connected} responding.";
+            StatusText = $"Scan complete: {Instruments.Count} instrument(s) found, {connected} identified.";
+        }
+        catch (OperationCanceledException)
+        {
+            StatusText = $"Scan cancelled. {Instruments.Count} instrument(s) found so far.";
         }
         catch (Exception ex)
         {
@@ -76,22 +154,69 @@ public partial class MainViewModel : ObservableObject
         finally
         {
             IsScanning = false;
+            _scanCts?.Dispose();
+            _scanCts = null;
         }
     }
 
-    private bool CanSendCommand() => SelectedInstrument?.IsConnected == true;
+    [RelayCommand(CanExecute = nameof(CanStopScan))]
+    private void StopScan()
+    {
+        _scanCts?.Cancel();
+    }
+
+    [RelayCommand]
+    private async Task AddManualAsync()
+    {
+        if (string.IsNullOrWhiteSpace(ManualHost)) return;
+
+        var parts = ManualHost.Split(':');
+        var host = parts[0].Trim();
+        var port = parts.Length > 1 && int.TryParse(parts[1], out var p) ? p : 5025;
+
+        StatusText = $"Connecting to {host}:{port}...";
+
+        var idn = await _tcpService.TryIdentifyAsync(host, port);
+        if (idn != null)
+        {
+            var info = InstrumentInfo.FromIdnResponse(host, port, InterfaceType.TcpRaw, idn);
+            Instruments.Add(info);
+            StatusText = $"Connected: {info.Manufacturer} {info.Model}";
+        }
+        else
+        {
+            var info = InstrumentInfo.CreateError(host, port, InterfaceType.TcpRaw, "No response to *IDN?");
+            Instruments.Add(info);
+            StatusText = $"No response from {host}:{port}";
+        }
+    }
+
+    private bool CanSendCommand() => SelectedInstrument != null;
 
     [RelayCommand(CanExecute = nameof(CanSendCommand))]
     private async Task SendCommandAsync()
     {
-        if (SelectedInstrument == null || string.IsNullOrWhiteSpace(CommandText))
-            return;
+        if (SelectedInstrument == null || string.IsNullOrWhiteSpace(CommandText)) return;
 
-        StatusText = $"Sending '{CommandText}' to {SelectedInstrument.ResourceName}...";
+        StatusText = $"Sending '{CommandText}' to {SelectedInstrument.DisplayAddress}...";
 
         try
         {
-            CommandResult = await _visaService.SendCommandAsync(SelectedInstrument.ResourceName, CommandText);
+            if (SelectedInstrument.Interface == InterfaceType.Serial)
+            {
+                CommandResult = await SerialScanService.SendCommandAsync(
+                    SelectedInstrument.Address, SelectedInstrument.Port, CommandText);
+            }
+            else
+            {
+                if (CommandText.TrimEnd().EndsWith('?'))
+                    CommandResult = await _tcpService.QueryAsync(SelectedInstrument.Address, SelectedInstrument.Port, CommandText);
+                else
+                {
+                    await _tcpService.SendAsync(SelectedInstrument.Address, SelectedInstrument.Port, CommandText);
+                    CommandResult = "OK";
+                }
+            }
             StatusText = "Command sent.";
         }
         catch (Exception ex)
@@ -102,22 +227,22 @@ public partial class MainViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private void CopyResourceName()
+    private void CopyAddress()
     {
         if (SelectedInstrument != null)
         {
-            Clipboard.SetText(SelectedInstrument.ResourceName);
-            StatusText = "Resource name copied to clipboard.";
+            Clipboard.SetText(SelectedInstrument.DisplayAddress);
+            StatusText = "Address copied.";
         }
     }
 
     [RelayCommand]
-    private void CopyIdnResponse()
+    private void CopyIdn()
     {
         if (SelectedInstrument != null && !string.IsNullOrEmpty(SelectedInstrument.IdnResponse))
         {
             Clipboard.SetText(SelectedInstrument.IdnResponse);
-            StatusText = "IDN response copied to clipboard.";
+            StatusText = "IDN response copied.";
         }
     }
 }

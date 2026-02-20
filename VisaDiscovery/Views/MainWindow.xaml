@@ -2,9 +2,9 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="clr-namespace:VisaDiscovery.ViewModels"
-        Title="VISA Discovery Tool"
-        Width="900" Height="620"
-        MinWidth="700" MinHeight="500"
+        Title="VISA Discovery Tool — No Runtime Required"
+        Width="960" Height="680"
+        MinWidth="750" MinHeight="550"
         WindowStartupLocation="CenterScreen"
         Background="#1E1E2E">
 
@@ -47,15 +47,48 @@
             </Setter>
         </Style>
 
+        <Style x:Key="DangerButton" TargetType="Button" BasedOn="{StaticResource AccentButton}">
+            <Setter Property="Background" Value="#9C216E" />
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="#B82882" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
         <Style x:Key="SmallButton" TargetType="Button" BasedOn="{StaticResource AccentButton}">
             <Setter Property="Padding" Value="10,4" />
             <Setter Property="FontSize" Value="11" />
             <Setter Property="Background" Value="#313244" />
         </Style>
+
+        <Style x:Key="CheckBoxStyle" TargetType="CheckBox">
+            <Setter Property="Foreground" Value="#A6ADC8" />
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+            <Setter Property="Margin" Value="0,0,12,0" />
+        </Style>
+
+        <Style x:Key="LabelStyle" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="#6C7086" />
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+            <Setter Property="Margin" Value="0,0,6,0" />
+        </Style>
+
+        <Style x:Key="InputStyle" TargetType="TextBox">
+            <Setter Property="Background" Value="#313244" />
+            <Setter Property="Foreground" Value="#CDD6F4" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Padding" Value="10,8" />
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+        </Style>
     </Window.Resources>
 
     <Grid Margin="16">
         <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
@@ -63,9 +96,10 @@
         </Grid.RowDefinitions>
 
         <!-- Header -->
-        <Grid Grid.Row="0" Margin="0,0,0,12">
+        <Grid Grid.Row="0" Margin="0,0,0,8">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
 
@@ -73,17 +107,55 @@
                 <TextBlock Text="🔍" FontSize="22" VerticalAlignment="Center" Margin="0,0,8,0" />
                 <TextBlock Text="VISA Discovery" Foreground="#CDD6F4" FontSize="22" FontWeight="Bold"
                            VerticalAlignment="Center" />
-                <TextBlock Text="Tool" Foreground="#6C7086" FontSize="22" FontWeight="Light"
-                           VerticalAlignment="Center" Margin="6,0,0,0" />
+                <TextBlock Text="— No Runtime Required" Foreground="#6C7086" FontSize="14" FontWeight="Light"
+                           VerticalAlignment="Center" Margin="8,3,0,0" />
             </StackPanel>
 
-            <Button Grid.Column="1" Content="⟳  Scan" Command="{Binding ScanCommand}"
-                    IsEnabled="{Binding IsScanning, Converter={StaticResource InverseBoolConverter}}"
+            <Button Grid.Column="1" Content="⏹ Stop" Command="{Binding StopScanCommand}"
+                    Style="{StaticResource DangerButton}" Margin="0,0,8,0" Padding="14,10"
+                    Visibility="{Binding IsScanning, Converter={StaticResource BoolToVis}}" />
+
+            <Button Grid.Column="2" Content="⟳  Scan All" Command="{Binding ScanCommand}"
                     Style="{StaticResource AccentButton}" FontSize="14" Padding="24,10" />
         </Grid>
 
+        <!-- Scan Options Bar -->
+        <Border Grid.Row="1" Background="#181825" CornerRadius="6" Padding="12,8" Margin="0,0,0,8">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="8" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="150" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="160" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
+                <CheckBox Grid.Column="0" Content="TCP/SCPI" IsChecked="{Binding ScanTcp}" Style="{StaticResource CheckBoxStyle}" />
+                <CheckBox Grid.Column="1" Content="mDNS/LXI" IsChecked="{Binding ScanMdns}" Style="{StaticResource CheckBoxStyle}" />
+                <CheckBox Grid.Column="2" Content="Serial" IsChecked="{Binding ScanSerial}" Style="{StaticResource CheckBoxStyle}" />
+
+                <TextBlock Grid.Column="5" Text="Subnet:" Style="{StaticResource LabelStyle}" />
+                <ComboBox Grid.Column="6" ItemsSource="{Binding DetectedSubnets}"
+                          SelectedItem="{Binding SubnetFilter}" IsEditable="True"
+                          Background="#313244" Foreground="#CDD6F4" BorderThickness="0"
+                          FontSize="12" Padding="6,4" />
+
+                <TextBlock Grid.Column="8" Text="Manual:" Style="{StaticResource LabelStyle}" Margin="12,0,6,0" />
+                <TextBox Grid.Column="9" Text="{Binding ManualHost, UpdateSourceTrigger=PropertyChanged}"
+                         Style="{StaticResource InputStyle}" FontFamily="Consolas" FontSize="11" />
+                <Button Grid.Column="10" Content="+ Add" Command="{Binding AddManualCommand}"
+                        Style="{StaticResource SmallButton}" Margin="6,0,0,0" />
+            </Grid>
+        </Border>
+
         <!-- Instruments DataGrid -->
-        <Border Grid.Row="1" Background="#181825" CornerRadius="8" Padding="2">
+        <Border Grid.Row="2" Background="#181825" CornerRadius="8" Padding="2">
             <DataGrid ItemsSource="{Binding Instruments}"
                       SelectedItem="{Binding SelectedInstrument}"
                       AutoGenerateColumns="False"
@@ -131,19 +203,20 @@
                     </Style>
                 </DataGrid.CellStyle>
                 <DataGrid.Columns>
-                    <DataGridTextColumn Header="Interface" Binding="{Binding InterfaceType}" Width="70" />
-                    <DataGridTextColumn Header="Resource" Binding="{Binding ResourceName}" Width="220" />
+                    <DataGridTextColumn Header="Interface" Binding="{Binding InterfaceLabel}" Width="80" />
+                    <DataGridTextColumn Header="Address" Binding="{Binding DisplayAddress}" Width="160" />
+                    <DataGridTextColumn Header="Hostname" Binding="{Binding Hostname}" Width="140" />
                     <DataGridTextColumn Header="Manufacturer" Binding="{Binding Manufacturer}" Width="120" />
                     <DataGridTextColumn Header="Model" Binding="{Binding Model}" Width="130" />
-                    <DataGridTextColumn Header="Serial" Binding="{Binding SerialNumber}" Width="120" />
-                    <DataGridTextColumn Header="Firmware" Binding="{Binding FirmwareVersion}" Width="100" />
+                    <DataGridTextColumn Header="Serial" Binding="{Binding SerialNumber}" Width="110" />
+                    <DataGridTextColumn Header="Firmware" Binding="{Binding FirmwareVersion}" Width="90" />
                     <DataGridTextColumn Header="Status" Binding="{Binding Status}" Width="*" />
                 </DataGrid.Columns>
             </DataGrid>
         </Border>
 
         <!-- Command Panel -->
-        <Border Grid.Row="2" Background="#181825" CornerRadius="8" Padding="12" Margin="0,10,0,0">
+        <Border Grid.Row="3" Background="#181825" CornerRadius="8" Padding="12" Margin="0,10,0,0">
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" />
@@ -157,17 +230,15 @@
                 </Grid.RowDefinitions>
 
                 <TextBox Grid.Column="0" Text="{Binding CommandText, UpdateSourceTrigger=PropertyChanged}"
-                         Background="#313244" Foreground="#CDD6F4" BorderThickness="0"
-                         Padding="10,8" FontFamily="Consolas" FontSize="13"
-                         VerticalContentAlignment="Center" />
+                         Style="{StaticResource InputStyle}" FontFamily="Consolas" FontSize="13" />
 
                 <Button Grid.Column="1" Content="Send" Command="{Binding SendCommandCommand}"
                         Style="{StaticResource AccentButton}" Margin="8,0,0,0" />
 
-                <Button Grid.Column="2" Content="📋 Resource" Command="{Binding CopyResourceNameCommand}"
+                <Button Grid.Column="2" Content="📋 Addr" Command="{Binding CopyAddressCommand}"
                         Style="{StaticResource SmallButton}" Margin="8,0,0,0" />
 
-                <Button Grid.Column="3" Content="📋 IDN" Command="{Binding CopyIdnResponseCommand}"
+                <Button Grid.Column="3" Content="📋 IDN" Command="{Binding CopyIdnCommand}"
                         Style="{StaticResource SmallButton}" Margin="8,0,0,0" />
 
                 <TextBox Grid.Row="1" Grid.ColumnSpan="4"
@@ -180,7 +251,7 @@
         </Border>
 
         <!-- Status Bar -->
-        <Border Grid.Row="3" Margin="0,8,0,0">
+        <Border Grid.Row="4" Margin="0,8,0,0">
             <Grid>
                 <TextBlock Text="{Binding StatusText}" Foreground="#6C7086" FontSize="11"
                            VerticalAlignment="Center" />
