@@ -16,7 +16,24 @@
 
   <ItemGroup>
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.0" />
-    <PackageReference Include="Ivi.Visa" Version="11.0.2240.2" />
   </ItemGroup>
+
+  <!--
+    Ivi.Visa is installed by VISA runtimes (NI-VISA, Keysight IO Libraries, R&S VISA).
+    Typical install path: C:\Program Files\IVI Foundation\VISA\Microsoft.NET\Framework64\
+    The reference below auto-resolves from the IVI Foundation standard location.
+  -->
+  <ItemGroup>
+    <Reference Include="Ivi.Visa">
+      <HintPath>C:\Program Files\IVI Foundation\VISA\Microsoft.NET\Framework64\Current\Ivi.Visa.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <!--
+    Alternative: If you have NI-VISA installed, you can replace the Reference above with:
+    <PackageReference Include="NationalInstruments.Visa" Version="24.8.0" />
+    and change 'using Ivi.Visa' to 'using NationalInstruments.Visa' in VisaService.cs
+  -->
 
 </Project>

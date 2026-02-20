@@ -24,6 +24,21 @@ A VISA runtime must be installed on your system:
 | Keysight IO Libraries | Keysight | [keysight.com](https://www.keysight.com/find/iolib) |
 | R&S VISA | Rohde & Schwarz | [rohde-schwarz.com](https://www.rohde-schwarz.com/applications/r-s-visa-application-note_56280-148812.html) |
 
+## Setup
+
+The project references `Ivi.Visa.dll` from the standard IVI Foundation install path:
+```
+C:\Program Files\IVI Foundation\VISA\Microsoft.NET\Framework64\Current\Ivi.Visa.dll
+```
+
+This DLL is installed automatically with any VISA runtime (NI-VISA, Keysight IO, R&S VISA).
+
+> **Alternative (NI-VISA only):** Replace the `<Reference>` in the `.csproj` with:
+> ```xml
+> <PackageReference Include="NationalInstruments.Visa" Version="24.8.0" />
+> ```
+> and change `using Ivi.Visa` to `using NationalInstruments.Visa` in `VisaService.cs`.
+
 ## Build
 
 ```bash
