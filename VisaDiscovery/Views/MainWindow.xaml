@@ -1,0 +1,194 @@
+<Window x:Class="VisaDiscovery.Views.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="clr-namespace:VisaDiscovery.ViewModels"
+        Title="VISA Discovery Tool"
+        Width="900" Height="620"
+        MinWidth="700" MinHeight="500"
+        WindowStartupLocation="CenterScreen"
+        Background="#1E1E2E">
+
+    <Window.DataContext>
+        <vm:MainViewModel />
+    </Window.DataContext>
+
+    <Window.Resources>
+        <BooleanToVisibilityConverter x:Key="BoolToVis" />
+
+        <Style x:Key="AccentButton" TargetType="Button">
+            <Setter Property="Background" Value="#0A8276" />
+            <Setter Property="Foreground" Value="White" />
+            <Setter Property="Padding" Value="16,8" />
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="border" Background="{TemplateBinding Background}"
+                                CornerRadius="4" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="border" Property="Background" Value="#0C9B8D" />
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="border" Property="Background" Value="#076B61" />
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="border" Property="Background" Value="#3B3B4F" />
+                                <Setter Property="Foreground" Value="#6C6C80" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="SmallButton" TargetType="Button" BasedOn="{StaticResource AccentButton}">
+            <Setter Property="Padding" Value="10,4" />
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="Background" Value="#313244" />
+        </Style>
+    </Window.Resources>
+
+    <Grid Margin="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <!-- Header -->
+        <Grid Grid.Row="0" Margin="0,0,0,12">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                <TextBlock Text="🔍" FontSize="22" VerticalAlignment="Center" Margin="0,0,8,0" />
+                <TextBlock Text="VISA Discovery" Foreground="#CDD6F4" FontSize="22" FontWeight="Bold"
+                           VerticalAlignment="Center" />
+                <TextBlock Text="Tool" Foreground="#6C7086" FontSize="22" FontWeight="Light"
+                           VerticalAlignment="Center" Margin="6,0,0,0" />
+            </StackPanel>
+
+            <Button Grid.Column="1" Content="⟳  Scan" Command="{Binding ScanCommand}"
+                    IsEnabled="{Binding IsScanning, Converter={StaticResource InverseBoolConverter}}"
+                    Style="{StaticResource AccentButton}" FontSize="14" Padding="24,10" />
+        </Grid>
+
+        <!-- Instruments DataGrid -->
+        <Border Grid.Row="1" Background="#181825" CornerRadius="8" Padding="2">
+            <DataGrid ItemsSource="{Binding Instruments}"
+                      SelectedItem="{Binding SelectedInstrument}"
+                      AutoGenerateColumns="False"
+                      IsReadOnly="True"
+                      HeadersVisibility="Column"
+                      GridLinesVisibility="Horizontal"
+                      HorizontalGridLinesBrush="#313244"
+                      Background="Transparent"
+                      Foreground="#CDD6F4"
+                      RowBackground="#181825"
+                      AlternatingRowBackground="#1E1E2E"
+                      BorderThickness="0"
+                      SelectionMode="Single"
+                      FontSize="12">
+                <DataGrid.ColumnHeaderStyle>
+                    <Style TargetType="DataGridColumnHeader">
+                        <Setter Property="Background" Value="#313244" />
+                        <Setter Property="Foreground" Value="#A6ADC8" />
+                        <Setter Property="Padding" Value="10,8" />
+                        <Setter Property="FontWeight" Value="SemiBold" />
+                        <Setter Property="FontSize" Value="11" />
+                        <Setter Property="BorderThickness" Value="0,0,1,0" />
+                        <Setter Property="BorderBrush" Value="#45475A" />
+                    </Style>
+                </DataGrid.ColumnHeaderStyle>
+                <DataGrid.CellStyle>
+                    <Style TargetType="DataGridCell">
+                        <Setter Property="Padding" Value="10,6" />
+                        <Setter Property="BorderThickness" Value="0" />
+                        <Setter Property="Template">
+                            <Setter.Value>
+                                <ControlTemplate TargetType="DataGridCell">
+                                    <Border Padding="{TemplateBinding Padding}" Background="{TemplateBinding Background}">
+                                        <ContentPresenter VerticalAlignment="Center" />
+                                    </Border>
+                                </ControlTemplate>
+                            </Setter.Value>
+                        </Setter>
+                        <Style.Triggers>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter Property="Background" Value="#2A2A3C" />
+                                <Setter Property="Foreground" Value="#CDD6F4" />
+                            </Trigger>
+                        </Style.Triggers>
+                    </Style>
+                </DataGrid.CellStyle>
+                <DataGrid.Columns>
+                    <DataGridTextColumn Header="Interface" Binding="{Binding InterfaceType}" Width="70" />
+                    <DataGridTextColumn Header="Resource" Binding="{Binding ResourceName}" Width="220" />
+                    <DataGridTextColumn Header="Manufacturer" Binding="{Binding Manufacturer}" Width="120" />
+                    <DataGridTextColumn Header="Model" Binding="{Binding Model}" Width="130" />
+                    <DataGridTextColumn Header="Serial" Binding="{Binding SerialNumber}" Width="120" />
+                    <DataGridTextColumn Header="Firmware" Binding="{Binding FirmwareVersion}" Width="100" />
+                    <DataGridTextColumn Header="Status" Binding="{Binding Status}" Width="*" />
+                </DataGrid.Columns>
+            </DataGrid>
+        </Border>
+
+        <!-- Command Panel -->
+        <Border Grid.Row="2" Background="#181825" CornerRadius="8" Padding="12" Margin="0,10,0,0">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+
+                <TextBox Grid.Column="0" Text="{Binding CommandText, UpdateSourceTrigger=PropertyChanged}"
+                         Background="#313244" Foreground="#CDD6F4" BorderThickness="0"
+                         Padding="10,8" FontFamily="Consolas" FontSize="13"
+                         VerticalContentAlignment="Center" />
+
+                <Button Grid.Column="1" Content="Send" Command="{Binding SendCommandCommand}"
+                        Style="{StaticResource AccentButton}" Margin="8,0,0,0" />
+
+                <Button Grid.Column="2" Content="📋 Resource" Command="{Binding CopyResourceNameCommand}"
+                        Style="{StaticResource SmallButton}" Margin="8,0,0,0" />
+
+                <Button Grid.Column="3" Content="📋 IDN" Command="{Binding CopyIdnResponseCommand}"
+                        Style="{StaticResource SmallButton}" Margin="8,0,0,0" />
+
+                <TextBox Grid.Row="1" Grid.ColumnSpan="4"
+                         Text="{Binding CommandResult, Mode=OneWay}"
+                         Background="#11111B" Foreground="#A6E3A1" BorderThickness="0"
+                         Padding="10,8" FontFamily="Consolas" FontSize="12"
+                         IsReadOnly="True" Margin="0,8,0,0"
+                         TextWrapping="Wrap" MaxHeight="60" />
+            </Grid>
+        </Border>
+
+        <!-- Status Bar -->
+        <Border Grid.Row="3" Margin="0,8,0,0">
+            <Grid>
+                <TextBlock Text="{Binding StatusText}" Foreground="#6C7086" FontSize="11"
+                           VerticalAlignment="Center" />
+                <ProgressBar IsIndeterminate="True" Height="2"
+                             Visibility="{Binding IsScanning, Converter={StaticResource BoolToVis}}"
+                             Foreground="#0A8276" Background="Transparent"
+                             VerticalAlignment="Bottom" />
+            </Grid>
+        </Border>
+    </Grid>
+</Window>
