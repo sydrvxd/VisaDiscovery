@@ -14,6 +14,7 @@ public partial class MainViewModel : ObservableObject
     private readonly NetworkScanService _networkScan = new();
     private readonly SerialScanService _serialScan = new();
     private readonly MdnsDiscoveryService _mdnsScan = new();
+    private readonly DynamicVisaService _visaService = new();
     private CancellationTokenSource? _scanCts;
 
     [ObservableProperty]
@@ -50,6 +51,15 @@ public partial class MainViewModel : ObservableObject
     private bool _scanSerial = true;
 
     [ObservableProperty]
+    private bool _scanVisa;
+
+    [ObservableProperty]
+    private bool _visaAvailable;
+
+    [ObservableProperty]
+    private string _visaInfo = string.Empty;
+
+    [ObservableProperty]
     private string _manualHost = string.Empty;
 
     public ObservableCollection<InstrumentInfo> Instruments { get; } = new();
@@ -60,6 +70,13 @@ public partial class MainViewModel : ObservableObject
         _networkScan.StatusUpdate += msg => Application.Current.Dispatcher.Invoke(() => StatusText = msg);
         _serialScan.StatusUpdate += msg => Application.Current.Dispatcher.Invoke(() => StatusText = msg);
         _mdnsScan.StatusUpdate += msg => Application.Current.Dispatcher.Invoke(() => StatusText = msg);
+        _visaService.StatusUpdate += msg => Application.Current.Dispatcher.Invoke(() => StatusText = msg);
+
+        // Try to load VISA runtime
+        _visaService.Initialize();
+        VisaAvailable = _visaService.IsAvailable;
+        VisaInfo = _visaService.RuntimeInfo ?? "";
+        ScanVisa = VisaAvailable; // auto-enable if available
 
         // Detect local subnets
         foreach (var (addr, prefix) in NetworkScanService.GetLocalSubnets())
@@ -71,6 +88,11 @@ public partial class MainViewModel : ObservableObject
 
         if (DetectedSubnets.Count > 0)
             SubnetFilter = DetectedSubnets[0];
+
+        var status = VisaAvailable
+            ? $"Ready — VISA detected: {VisaInfo}"
+            : "Ready — no VISA runtime (TCP/mDNS/Serial only)";
+        StatusText = status;
     }
 
     private bool CanScan() => !IsScanning;
@@ -113,7 +135,31 @@ public partial class MainViewModel : ObservableObject
 
             ScanProgress = 10;
 
-            // 2. TCP subnet scan
+            // 2. VISA scan (GPIB, USB-TMC, PXI, etc.)
+            if (ScanVisa && VisaAvailable)
+            {
+                StatusText = "VISA: Scanning for GPIB, USB, PXI instruments...";
+                var visaResources = await Task.Run(() => _visaService.FindAllResources(), ct);
+
+                StatusText = $"VISA: Found {visaResources.Count} resource(s). Querying...";
+
+                foreach (var resource in visaResources)
+                {
+                    ct.ThrowIfCancellationRequested();
+                    var info = await _visaService.QueryInstrumentAsync(resource);
+                    info.VisaResource = resource;
+
+                    // Set address from resource string for display
+                    if (string.IsNullOrEmpty(info.Address) || info.Address == resource)
+                        info.Address = resource;
+
+                    Instruments.Add(info);
+                }
+            }
+
+            ScanProgress = 30;
+
+            // 3. TCP subnet scan
             if (ScanTcp && !string.IsNullOrWhiteSpace(SubnetFilter))
             {
                 StatusText = $"TCP: Scanning {SubnetFilter}.0/24 for instruments...";
@@ -129,7 +175,7 @@ public partial class MainViewModel : ObservableObject
 
             ScanProgress = 80;
 
-            // 3. Serial ports
+            // 4. Serial ports
             if (ScanSerial)
             {
                 StatusText = "Serial: Probing COM ports...";
@@ -202,13 +248,23 @@ public partial class MainViewModel : ObservableObject
 
         try
         {
-            if (SelectedInstrument.Interface == InterfaceType.Serial)
+            var iface = SelectedInstrument.Interface;
+
+            if (iface is InterfaceType.VisaGpib or InterfaceType.VisaUsb or InterfaceType.VisaTcpip
+                or InterfaceType.VisaPxi or InterfaceType.VisaOther
+                && !string.IsNullOrEmpty(SelectedInstrument.VisaResource))
+            {
+                // Use VISA for VISA-discovered instruments
+                CommandResult = await _visaService.SendCommandAsync(SelectedInstrument.VisaResource, CommandText);
+            }
+            else if (iface == InterfaceType.Serial)
             {
                 CommandResult = await SerialScanService.SendCommandAsync(
                     SelectedInstrument.Address, SelectedInstrument.Port, CommandText);
             }
             else
             {
+                // TCP/SCPI for network instruments
                 if (CommandText.TrimEnd().EndsWith('?'))
                     CommandResult = await _tcpService.QueryAsync(SelectedInstrument.Address, SelectedInstrument.Port, CommandText);
                 else

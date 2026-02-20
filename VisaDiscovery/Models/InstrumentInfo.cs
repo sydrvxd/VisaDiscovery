@@ -7,6 +7,11 @@ public enum InterfaceType
     LxiMdns,    // Discovered via mDNS
     HiSlip,     // HiSLIP (port 4880)
     Serial,     // COM port
+    VisaGpib,   // VISA GPIB
+    VisaUsb,    // VISA USB-TMC
+    VisaTcpip,  // VISA TCPIP
+    VisaPxi,    // VISA PXI
+    VisaOther,  // VISA other
     Unknown
 }
 
@@ -28,6 +33,11 @@ public class InstrumentInfo
         ? Address
         : Port > 0 ? $"{Address}:{Port}" : Address;
 
+    /// <summary>
+    /// VISA resource string (only set for VISA-discovered instruments).
+    /// </summary>
+    public string VisaResource { get; set; } = string.Empty;
+
     public string InterfaceLabel => Interface switch
     {
         InterfaceType.TcpRaw => "TCP/SCPI",
@@ -35,6 +45,11 @@ public class InstrumentInfo
         InterfaceType.LxiMdns => "LXI/mDNS",
         InterfaceType.HiSlip => "HiSLIP",
         InterfaceType.Serial => "Serial",
+        InterfaceType.VisaGpib => "GPIB",
+        InterfaceType.VisaUsb => "USB-TMC",
+        InterfaceType.VisaTcpip => "VISA/TCP",
+        InterfaceType.VisaPxi => "PXI",
+        InterfaceType.VisaOther => "VISA",
         _ => "Unknown"
     };
 
