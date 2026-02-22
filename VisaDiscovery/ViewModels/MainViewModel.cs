@@ -15,6 +15,7 @@ public partial class MainViewModel : ObservableObject
     private readonly SerialScanService _serialScan = new();
     private readonly MdnsDiscoveryService _mdnsScan = new();
     private readonly DynamicVisaService _visaService = new();
+    private readonly NativeVisaService _nativeVisaService = new();
     private CancellationTokenSource? _scanCts;
 
     [ObservableProperty]
@@ -54,10 +55,19 @@ public partial class MainViewModel : ObservableObject
     private bool _scanVisa;
 
     [ObservableProperty]
+    private bool _scanNativeVisa;
+
+    [ObservableProperty]
     private bool _visaAvailable;
 
     [ObservableProperty]
+    private bool _nativeVisaAvailable;
+
+    [ObservableProperty]
     private string _visaInfo = string.Empty;
+
+    [ObservableProperty]
+    private string _nativeVisaInfo = string.Empty;
 
     [ObservableProperty]
     private string _manualHost = string.Empty;
@@ -72,11 +82,17 @@ public partial class MainViewModel : ObservableObject
         _mdnsScan.StatusUpdate += msg => Application.Current.Dispatcher.Invoke(() => StatusText = msg);
         _visaService.StatusUpdate += msg => Application.Current.Dispatcher.Invoke(() => StatusText = msg);
 
-        // Try to load VISA runtime
+        // Try to load VISA runtimes
         _visaService.Initialize();
         VisaAvailable = _visaService.IsAvailable;
         VisaInfo = _visaService.RuntimeInfo ?? "";
         ScanVisa = VisaAvailable; // auto-enable if available
+
+        // Try native VISA (visa32/visa64 DLL — works with OpenVISA or NI-VISA)
+        _nativeVisaService.Initialize();
+        NativeVisaAvailable = _nativeVisaService.IsAvailable;
+        NativeVisaInfo = _nativeVisaService.RuntimeInfo ?? "";
+        ScanNativeVisa = NativeVisaAvailable && !VisaAvailable; // prefer managed if both available
 
         // Detect local subnets
         foreach (var (addr, prefix) in NetworkScanService.GetLocalSubnets())
@@ -90,8 +106,10 @@ public partial class MainViewModel : ObservableObject
             SubnetFilter = DetectedSubnets[0];
 
         var status = VisaAvailable
-            ? $"Ready — VISA detected: {VisaInfo}"
-            : "Ready — no VISA runtime (TCP/mDNS/Serial only)";
+            ? $"Ready — VISA (.NET): {VisaInfo}"
+            : NativeVisaAvailable
+                ? $"Ready — VISA (native): {NativeVisaInfo}"
+                : "Ready — no VISA runtime (TCP/mDNS/Serial only)";
         StatusText = status;
     }
 
@@ -153,6 +171,29 @@ public partial class MainViewModel : ObservableObject
                     if (string.IsNullOrEmpty(info.Address) || info.Address == resource)
                         info.Address = resource;
 
+                    Instruments.Add(info);
+                }
+            }
+
+            // 2b. Native VISA scan (visa32/visa64 — OpenVISA or NI-VISA native)
+            if (ScanNativeVisa && NativeVisaAvailable)
+            {
+                StatusText = "Native VISA: Scanning for instruments...";
+                var nativeResources = await Task.Run(() => _nativeVisaService.FindAllResources(), ct);
+
+                StatusText = $"Native VISA: Found {nativeResources.Count} resource(s). Querying...";
+
+                foreach (var resource in nativeResources)
+                {
+                    ct.ThrowIfCancellationRequested();
+
+                    // Skip if already found via managed VISA
+                    if (Instruments.Any(i => i.VisaResource == resource)) continue;
+
+                    var info = await _nativeVisaService.QueryInstrumentAsync(resource);
+                    info.VisaResource = resource;
+                    if (string.IsNullOrEmpty(info.Address) || info.Address == resource)
+                        info.Address = resource;
                     Instruments.Add(info);
                 }
             }
@@ -254,8 +295,13 @@ public partial class MainViewModel : ObservableObject
                 or InterfaceType.VisaPxi or InterfaceType.VisaOther
                 && !string.IsNullOrEmpty(SelectedInstrument.VisaResource))
             {
-                // Use VISA for VISA-discovered instruments
-                CommandResult = await _visaService.SendCommandAsync(SelectedInstrument.VisaResource, CommandText);
+                // Use managed VISA if available, otherwise native
+                if (_visaService.IsAvailable)
+                    CommandResult = await _visaService.SendCommandAsync(SelectedInstrument.VisaResource, CommandText);
+                else if (_nativeVisaService.IsAvailable)
+                    CommandResult = await _nativeVisaService.SendCommandAsync(SelectedInstrument.VisaResource, CommandText);
+                else
+                    CommandResult = "Error: No VISA runtime available";
             }
             else if (iface == InterfaceType.Serial)
             {
@@ -295,7 +341,10 @@ public partial class MainViewModel : ObservableObject
     [RelayCommand]
     private void ShowVisaDiagnostics()
     {
-        var report = _visaService.GetDiagnosticReport();
+        var report = "=== Managed VISA (.NET Ivi.Visa) ===\n" +
+                     _visaService.GetDiagnosticReport() +
+                     "\n\n=== Native VISA (visa32/visa64 DLL) ===\n" +
+                     _nativeVisaService.GetDiagnosticReport();
         CommandResult = report;
         MessageBox.Show(report, "VISA Diagnostics", MessageBoxButton.OK, MessageBoxImage.Information);
     }

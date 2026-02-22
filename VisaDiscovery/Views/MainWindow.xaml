@@ -144,12 +144,24 @@
                           Style="{StaticResource CheckBoxStyle}" Margin="0,0,4,0">
                     <CheckBox.Content>
                         <StackPanel Orientation="Horizontal">
-                            <TextBlock Text="VISA" />
+                            <TextBlock Text="VISA (.NET)" />
                             <TextBlock Text=" ✓" Foreground="#A6E3A1" Visibility="{Binding VisaAvailable, Converter={StaticResource BoolToVis}}" />
                         </StackPanel>
                     </CheckBox.Content>
                     <CheckBox.ToolTip>
                         <TextBlock Text="{Binding VisaInfo}" />
+                    </CheckBox.ToolTip>
+                </CheckBox>
+                <CheckBox Grid.Column="4" IsChecked="{Binding ScanNativeVisa}" IsEnabled="{Binding NativeVisaAvailable}"
+                          Style="{StaticResource CheckBoxStyle}" Margin="0,0,4,0">
+                    <CheckBox.Content>
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="VISA (Native)" />
+                            <TextBlock Text=" ✓" Foreground="#A6E3A1" Visibility="{Binding NativeVisaAvailable, Converter={StaticResource BoolToVis}}" />
+                        </StackPanel>
+                    </CheckBox.Content>
+                    <CheckBox.ToolTip>
+                        <TextBlock Text="{Binding NativeVisaInfo}" />
                     </CheckBox.ToolTip>
                 </CheckBox>
 
